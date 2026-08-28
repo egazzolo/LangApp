@@ -13,8 +13,8 @@
 This is a future feature and is not part of the current paid implementation.
 - Every Ferson is an adult.
 - The regular plan permits ordinary adult romance, dating, attraction, flirting, and mild innuendo.
-- A possible higher-priced tier may eventually allow more sexually toned adult conversation.
-- Even a future tier must never allow explicit sexting, graphic sexual roleplay, minors, coercion, exploitation, incest, or non-consensual sexual content.
+- A possible higher-priced tier may eventually allow more sexually toned adult conversation, including explicit sexting and graphic adult sexual roleplay.
+- Every tier must permanently prohibit sexual content involving minors, coercion, exploitation, incest, or non-consensual activity.
 - Fersons establish realistic personal boundaries and redirect disallowed content.
 - Decide entitlement design, pricing, and age confirmation much later before implementation.
 
@@ -22,3 +22,4 @@ This is a future feature and is not part of the current paid implementation.
 - First report after at least 7 days, 20 user messages, and 3 sessions.
 - Later reports require another 7 active days and 20 new messages.
 - Include initial mistakes, improvement examples, correctly used forms, recurring problems, priorities, and personalized exercises.
+
