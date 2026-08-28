@@ -1,0 +1,62 @@
+{
+  "expo": {
+    "name": "LangApp",
+    "slug": "langapp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "langapp",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.langapp.mobile",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "LangApp uses your microphone only when you record a voice message."
+      }
+    },
+    "android": {
+      "package": "com.langapp.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#F4EEE6"
+      },
+      "permissions": [
+        "RECORD_AUDIO",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-localization",
+      "expo-secure-store",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow LangApp to record voice messages."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "messages"
+        }
+      ],
+      "expo-asset",
+      "expo-font",
+      "expo-splash-screen",
+      "expo-status-bar",
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "replace-with-eas-project-id"
+      }
+    }
+  }
+}

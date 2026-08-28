@@ -1,0 +1,102 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { OpenAIProvider } from '../_shared/providers.ts';
+import { prompts } from '../_shared/prompts.ts';
+
+const headers = { 'Content-Type': 'application/json' };
+const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers });
+const moderationResult = async (input: string) => {
+  const response = await fetch('https://api.openai.com/v1/moderations', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + Deno.env.get('OPENAI_API_KEY')!, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'omni-moderation-latest', input }),
+  });
+  if (!response.ok) throw new Error('moderation_unavailable');
+  const result = (await response.json()).results?.[0];
+  const categories = result?.categories ?? {};
+  return { sexual: categories.sexual === true, sexualMinors: categories['sexual/minors'] === true };
+};
+
+const adultBoundaryReply = {
+  text: "I'm not comfortable taking the conversation there. We can keep it flirty without getting explicit.",
+  kind: 'text',
+  annotations: [
+    { text: "taking the conversation there", meaning: 'Moving the conversation toward a topic or level the speaker does not want.' },
+    { text: 'keep it flirty', meaning: 'Continue with light romantic teasing or attraction without becoming explicit.' },
+  ],
+};
+const minorBoundaryReply = {
+  text: "I can't engage with anything sexual involving anyone under 18. Let's change the subject.",
+  kind: 'text',
+  annotations: [{ text: 'change the subject', meaning: 'Stop discussing the current topic and talk about something else.' }],
+};
+
+Deno.serve(async (req) => {
+  const started = Date.now();
+  try {
+    const token = req.headers.get('Authorization');
+    if (!token) return jsonResponse({ error: 'unauthorized' }, 401);
+    const userClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: token } } });
+    const { data: { user }, error } = await userClient.auth.getUser();
+    if (error || !user) return jsonResponse({ error: 'unauthorized' }, 401);
+
+    const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const contentType = req.headers.get('content-type') ?? '';
+
+    if (contentType.includes('multipart/form-data')) {
+      const form = await req.formData();
+      if (form.get('feature') !== 'transcription') return jsonResponse({ error: 'invalid_feature' }, 400);
+      const file = form.get('file');
+      if (!(file instanceof File) || file.size === 0) return jsonResponse({ error: 'missing_audio' }, 400);
+      if (file.size > 25 * 1024 * 1024) return jsonResponse({ error: 'audio_too_large' }, 413);
+
+      const openAIForm = new FormData();
+      openAIForm.append('model', Deno.env.get('OPENAI_TRANSCRIPTION_MODEL') ?? 'gpt-transcribe');
+      openAIForm.append('file', file, file.name || 'voice-message.m4a');
+      openAIForm.append('prompt', 'Transcribe exactly what the speaker says. Preserve every language and natural code-switching. Do not translate. The app interface locale is ' + String(form.get('interfaceLocale') ?? 'unknown') + '.');
+      const transcriptionResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + Deno.env.get('OPENAI_API_KEY')! },
+        body: openAIForm,
+      });
+      if (!transcriptionResponse.ok) {
+        console.error('Transcription provider failed', transcriptionResponse.status, await transcriptionResponse.text());
+        return jsonResponse({ error: 'transcription_unavailable', retryable: true }, 503);
+      }
+      const transcription = await transcriptionResponse.json();
+      const text = typeof transcription.text === 'string' ? transcription.text.trim() : '';
+      if (!text) return jsonResponse({ error: 'empty_transcription', retryable: true }, 503);
+      await admin.from('ai_usage').insert({ user_id: user.id, conversation_id: null, provider: 'openai', model: Deno.env.get('OPENAI_TRANSCRIPTION_MODEL') ?? 'gpt-transcribe', feature: 'transcription', latency_ms: Date.now() - started, success: true });
+      return jsonResponse({ data: { text } });
+    }
+
+    const body = await req.json();
+    const feature = body.feature;
+    if (feature === 'conversation') {
+      const conversation = Array.isArray(body.context?.conversation) ? body.context.conversation : [];
+      const latestUserText = [...conversation].reverse().find((message: { role?: string; text?: string }) => message.role === 'user')?.text;
+      if (typeof latestUserText === 'string' && latestUserText.trim()) {
+        const moderation = await moderationResult(latestUserText);
+        if (moderation.sexualMinors) return jsonResponse({ data: minorBoundaryReply, promptVersion: 'safety-boundary.v1' });
+        if (moderation.sexual) return jsonResponse({ data: adultBoundaryReply, promptVersion: 'safety-boundary.v1' });
+      }
+    }
+    const prompt = feature === 'character_generation' ? prompts.characterGeneration : feature === 'learning_analysis' ? prompts.learningAnalysis : feature === 'memory_extraction' ? prompts.memoryExtraction : feature === 'reply_assistance' ? prompts.replyAssistance : feature === 'tutor_review' ? prompts.tutorReview : feature === 'message_explanation' ? prompts.messageExplanation : prompts.conversation;
+    const model = Deno.env.get('OPENAI_TEXT_MODEL') ?? 'gpt-5-mini';
+    const provider = new OpenAIProvider(Deno.env.get('OPENAI_API_KEY')!);
+    const result = await provider.generateStructured({ model, system: prompt.system, input: body.context, schemaName: body.schemaName, schema: body.schema });
+    if (feature === 'conversation' && typeof result.data?.text === 'string') {
+      const moderation = await moderationResult(result.data.text);
+      if (moderation.sexualMinors) result.data = minorBoundaryReply;
+      else if (moderation.sexual) result.data = adultBoundaryReply;
+    }
+    await admin.from('ai_usage').insert({ user_id: user.id, conversation_id: null, provider: 'openai', model, feature, input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, latency_ms: Date.now() - started, success: true, request_id: result.requestId });
+    return jsonResponse({ data: result.data, promptVersion: prompt.version });
+  } catch (error) {
+    console.error(error);
+    return jsonResponse({ error: 'provider_unavailable', retryable: true }, 503);
+  }
+});
+
+
+
+

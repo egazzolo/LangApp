@@ -1,0 +1,11 @@
+import i18n from 'i18next';
+import { initReactI18next } from 'react-i18next';
+import { getLocales } from 'expo-localization';
+import { I18nManager } from 'react-native';
+import { resources } from './resources';
+const supported = Object.keys(resources);
+const device = getLocales()[0]?.languageTag ?? 'en';
+const locale = supported.includes(device) ? device : supported.find((item) => device.startsWith(item.split('-')[0]!)) ?? 'en';
+void i18n.use(initReactI18next).init({ resources, lng: locale, fallbackLng: 'en', interpolation: { escapeValue: false }, returnNull: false });
+I18nManager.allowRTL(locale === 'ar');
+export default i18n;
