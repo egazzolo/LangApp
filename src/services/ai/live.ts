@@ -38,7 +38,7 @@ export async function ensureSession() {
 }
 
 export const liveConversationProvider: ConversationProvider = {
-  async reply(character: Character, recentMessages: Message[], interfaceLocale = 'en') {
+  async reply(character: Character, recentMessages: Message[], interfaceLocale = 'en', includeAnnotations = true) {
     await ensureSession();
     if (!supabase) throw new Error('SUPABASE_NOT_CONFIGURED');
 
@@ -65,6 +65,7 @@ export const liveConversationProvider: ConversationProvider = {
             currentLifeState: character.currentState,
           },
           interfaceLocale,
+          includeAnnotations,
           conversation: history,
           responseRequirements: {
             replyAs: character.name,
@@ -226,5 +227,6 @@ export async function getMessageAnnotations(messageText: string, interfaceLocale
   if (error) throw error;
   return messageAnnotationsSchema.parse(data?.data);
 }
+
 
 
