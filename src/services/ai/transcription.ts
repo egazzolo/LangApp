@@ -1,4 +1,6 @@
 import { env } from '@/config/env';
+import { fetch } from 'expo/fetch';
+import { File } from 'expo-file-system';
 import { ensureSession } from './live';
 
 const contentTypeFor = (uri: string) => uri.toLowerCase().endsWith('.webm') ? 'audio/webm' : uri.toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/m4a';
@@ -11,7 +13,8 @@ export async function transcribeVoiceMessage(uri: string, interfaceLocale: strin
   const body = new FormData();
   body.append('feature', 'transcription');
   body.append('interfaceLocale', interfaceLocale);
-  body.append('file', { uri, name: 'voice-message.' + extension, type } as unknown as Blob);
+  const file = new File(uri);
+  body.append('file', file, 'voice-message.' + extension);
   const response = await fetch(env.EXPO_PUBLIC_SUPABASE_URL + '/functions/v1/ai-orchestrator', {
     method: 'POST',
     headers: {

@@ -1,4 +1,4 @@
-package com.langapp.mobile
+package com.ferson.mobile
 
 import android.os.Build
 import android.os.Bundle

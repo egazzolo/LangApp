@@ -1,26 +1,30 @@
 {
   "expo": {
-    "name": "LangApp",
-    "slug": "langapp",
+    "name": "Ferson",
+    "slug": "ferson",
     "version": "1.0.0",
     "orientation": "portrait",
-    "scheme": "langapp",
+    "scheme": "ferson",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.langapp.mobile",
+      "bundleIdentifier": "com.ferson.mobile",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "LangApp uses your microphone only when you record a voice message."
+        "NSMicrophoneUsageDescription": "Ferson uses your microphone only when you record a voice message."
       }
     },
     "android": {
-      "package": "com.langapp.mobile",
+      "package": "com.ferson.mobile",
       "adaptiveIcon": {
         "backgroundColor": "#F4EEE6"
       },
       "permissions": [
         "RECORD_AUDIO",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ]
     },
     "web": {
@@ -34,7 +38,7 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "Allow LangApp to record voice messages."
+          "microphonePermission": "Allow Ferson to record voice messages."
         }
       ],
       [
@@ -47,7 +51,8 @@
       "expo-font",
       "expo-splash-screen",
       "expo-status-bar",
-      "expo-web-browser"
+      "expo-web-browser",
+      "@sentry/react-native/expo"
     ],
     "experiments": {
       "typedRoutes": true
@@ -55,8 +60,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "replace-with-eas-project-id"
+        "projectId": "07ee8c4f-abbf-4c02-8e5c-147868669d1e"
       }
-    }
+    },
+    "owner": "pearlapps"
   }
 }

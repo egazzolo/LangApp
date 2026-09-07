@@ -25,6 +25,8 @@ export const memoryExtractionSchema = z.object({
 export const conversationReplySchema = z.object({
   text: z.string().trim().min(1).max(1200),
   kind: z.enum(['text', 'voice']),
+  audioPath: z.string().min(1).max(500).optional(),
+  durationSeconds: z.number().nonnegative().optional(),
   annotations: z.array(z.object({ text: z.string().trim().min(1).max(100), meaning: z.string().trim().min(1).max(300) })).max(12),
 });
 

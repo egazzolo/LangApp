@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { OpenAIProvider } from '../_shared/providers.ts';
+import { AIProviderError, OpenAIProvider } from '../_shared/providers.ts';
 import { prompts } from '../_shared/prompts.ts';
 
 const headers = { 'Content-Type': 'application/json' };
@@ -32,6 +32,10 @@ const minorBoundaryReply = {
 
 Deno.serve(async (req) => {
   const started = Date.now();
+  let admin: ReturnType<typeof createClient> | null = null;
+  let userId: string | null = null;
+  let attemptedFeature = 'unknown';
+  let attemptedModel = 'unknown';
   try {
     const token = req.headers.get('Authorization');
     if (!token) return jsonResponse({ error: 'unauthorized' }, 401);
@@ -39,7 +43,8 @@ Deno.serve(async (req) => {
     const { data: { user }, error } = await userClient.auth.getUser();
     if (error || !user) return jsonResponse({ error: 'unauthorized' }, 401);
 
-    const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    userId = user.id;
+    admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
     const contentType = req.headers.get('content-type') ?? '';
 
     if (contentType.includes('multipart/form-data')) {
@@ -59,29 +64,68 @@ Deno.serve(async (req) => {
         body: openAIForm,
       });
       if (!transcriptionResponse.ok) {
-        console.error('Transcription provider failed', transcriptionResponse.status, await transcriptionResponse.text());
-        return jsonResponse({ error: 'transcription_unavailable', retryable: true }, 503);
+        const retryable = transcriptionResponse.status === 429 || transcriptionResponse.status >= 500;
+        await admin.from('ai_usage').insert({ user_id: user.id, conversation_id: null, provider: 'openai', model: Deno.env.get('OPENAI_TRANSCRIPTION_MODEL') ?? 'gpt-transcribe', feature: 'transcription', request_id: transcriptionResponse.headers.get('x-request-id'), latency_ms: Date.now() - started, success: false, error_code: 'TRANSCRIPTION_HTTP_ERROR', http_status: transcriptionResponse.status, retryable, retry_count: 0 });
+        console.error('TRANSCRIPTION_HTTP_ERROR', transcriptionResponse.status);
+        return jsonResponse({ error: 'transcription_unavailable', retryable }, retryable ? 503 : 422);
       }
       const transcription = await transcriptionResponse.json();
       const text = typeof transcription.text === 'string' ? transcription.text.trim() : '';
-      if (!text) return jsonResponse({ error: 'empty_transcription', retryable: true }, 503);
-      await admin.from('ai_usage').insert({ user_id: user.id, conversation_id: null, provider: 'openai', model: Deno.env.get('OPENAI_TRANSCRIPTION_MODEL') ?? 'gpt-transcribe', feature: 'transcription', latency_ms: Date.now() - started, success: true });
+      if (!text) {
+        await admin.from('ai_usage').insert({ user_id: user.id, conversation_id: null, provider: 'openai', model: Deno.env.get('OPENAI_TRANSCRIPTION_MODEL') ?? 'gpt-transcribe', feature: 'transcription', request_id: transcriptionResponse.headers.get('x-request-id'), latency_ms: Date.now() - started, success: false, error_code: 'EMPTY_TRANSCRIPTION', http_status: transcriptionResponse.status, retryable: true, retry_count: 0 });
+        return jsonResponse({ error: 'empty_transcription', retryable: true }, 503);
+      }
+      await admin.from('ai_usage').insert({ user_id: user.id, conversation_id: null, provider: 'openai', model: Deno.env.get('OPENAI_TRANSCRIPTION_MODEL') ?? 'gpt-transcribe', feature: 'transcription', request_id: transcriptionResponse.headers.get('x-request-id'), latency_ms: Date.now() - started, success: true, http_status: transcriptionResponse.status, retryable: false, retry_count: 0 });
       return jsonResponse({ data: { text } });
     }
 
     const body = await req.json();
     const feature = body.feature;
+    attemptedFeature = typeof feature === 'string' ? feature : 'unknown';
+    if (feature === 'tutor_review') {
+      const now = new Date().toISOString();
+      const { data: entitlement } = await admin.from('profiles').select('is_premium,trial_ends_at,grace_period_ends_at,premium_expires_at').eq('id', user.id).maybeSingle();
+      const hasPremium = Boolean(
+        (entitlement?.is_premium === true && (!entitlement.premium_expires_at || entitlement.premium_expires_at > now))
+        || (entitlement?.trial_ends_at && entitlement.trial_ends_at > now)
+        || (entitlement?.grace_period_ends_at && entitlement.grace_period_ends_at > now)
+      );
+      const correctionIntensity = ['chill', 'balanced', 'intensive'].includes(body.context?.correctionIntensity)
+        ? body.context.correctionIntensity
+        : 'balanced';
+      body.context = { ...body.context, correctionIntensity, acceptCasualTexting: hasPremium && body.context?.acceptCasualTexting === true };
+    }
     if (feature === 'conversation') {
+      const now = new Date().toISOString();
+      const { data: entitlement } = await admin.from('profiles').select('is_premium,trial_ends_at,grace_period_ends_at,premium_expires_at').eq('id', user.id).maybeSingle();
+      const hasPremium = Boolean(
+        (entitlement?.is_premium === true && (!entitlement.premium_expires_at || entitlement.premium_expires_at > now))
+        || (entitlement?.trial_ends_at && entitlement.trial_ends_at > now)
+        || (entitlement?.grace_period_ends_at && entitlement.grace_period_ends_at > now)
+      );
+      const requestedKnowledge = body.context?.character?.knowledgeProfile;
+      body.context = {
+        ...body.context,
+        character: {
+          ...body.context?.character,
+          knowledgeProfile: hasPremium && requestedKnowledge?.level === 'specialist'
+            ? { level: 'specialist', expertiseDomains: Array.isArray(requestedKnowledge.expertiseDomains) ? requestedKnowledge.expertiseDomains.slice(0, 5) : [] }
+            : { level: 'general', expertiseDomains: [] },
+        },
+      };
       const conversation = Array.isArray(body.context?.conversation) ? body.context.conversation : [];
       const latestUserText = [...conversation].reverse().find((message: { role?: string; text?: string }) => message.role === 'user')?.text;
       if (typeof latestUserText === 'string' && latestUserText.trim()) {
         const moderation = await moderationResult(latestUserText);
-        if (moderation.sexualMinors) return jsonResponse({ data: minorBoundaryReply, promptVersion: 'safety-boundary.v1' });
-        if (moderation.sexual) return jsonResponse({ data: adultBoundaryReply, promptVersion: 'safety-boundary.v1' });
+        if (moderation.sexualMinors || moderation.sexual) {
+          await admin.from('ai_usage').insert({ user_id: user.id, conversation_id: null, provider: 'openai', model: 'omni-moderation-latest', feature: 'conversation_safety_boundary', latency_ms: Date.now() - started, success: true, http_status: 200, retryable: false, retry_count: 0 });
+          return jsonResponse({ data: moderation.sexualMinors ? minorBoundaryReply : adultBoundaryReply, promptVersion: 'safety-boundary.v1' });
+        }
       }
     }
     const prompt = feature === 'character_generation' ? prompts.characterGeneration : feature === 'learning_analysis' ? prompts.learningAnalysis : feature === 'memory_extraction' ? prompts.memoryExtraction : feature === 'reply_assistance' ? prompts.replyAssistance : feature === 'tutor_review' ? prompts.tutorReview : feature === 'message_explanation' ? prompts.messageExplanation : prompts.conversation;
     const model = Deno.env.get('OPENAI_TEXT_MODEL') ?? 'gpt-5-mini';
+    attemptedModel = model;
     const provider = new OpenAIProvider(Deno.env.get('OPENAI_API_KEY')!);
     const result = await provider.generateStructured({ model, system: prompt.system, input: body.context, schemaName: body.schemaName, schema: body.schema });
     if (feature === 'conversation' && typeof result.data?.text === 'string') {
@@ -89,14 +133,12 @@ Deno.serve(async (req) => {
       if (moderation.sexualMinors) result.data = minorBoundaryReply;
       else if (moderation.sexual) result.data = adultBoundaryReply;
     }
-    await admin.from('ai_usage').insert({ user_id: user.id, conversation_id: null, provider: 'openai', model, feature, input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, latency_ms: Date.now() - started, success: true, request_id: result.requestId });
+    await admin.from('ai_usage').insert({ user_id: user.id, conversation_id: null, provider: 'openai', model, feature, input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens, latency_ms: Date.now() - started, success: true, request_id: result.requestId, http_status: 200, retryable: false, retry_count: 0 });
     return jsonResponse({ data: result.data, promptVersion: prompt.version });
   } catch (error) {
-    console.error(error);
-    return jsonResponse({ error: 'provider_unavailable', retryable: true }, 503);
+    const providerError = error instanceof AIProviderError ? error : null;
+    if (admin && userId) await admin.from('ai_usage').insert({ user_id: userId, conversation_id: null, provider: 'openai', model: attemptedModel, feature: attemptedFeature, request_id: providerError?.requestId, latency_ms: Date.now() - started, success: false, error_code: providerError?.code ?? 'AI_ORCHESTRATOR_ERROR', http_status: providerError?.httpStatus ?? 500, retryable: providerError?.retryable ?? true, retry_count: providerError?.retryCount ?? 0 });
+    console.error(providerError?.code ?? 'AI_ORCHESTRATOR_ERROR');
+    return jsonResponse({ error: 'provider_unavailable', retryable: providerError?.retryable ?? true }, 503);
   }
 });
-
-
-
-

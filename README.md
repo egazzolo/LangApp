@@ -1,4 +1,4 @@
-# LangApp
+# Ferson
 
 A production-oriented Expo/React Native foundation for a language-learning social circle of clearly disclosed fictional AI people. The UI behaves like a warm messaging app; learning analysis remains quiet and contextual.
 

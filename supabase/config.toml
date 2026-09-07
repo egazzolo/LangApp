@@ -1,4 +1,4 @@
-project_id = "langapp"
+project_id = "ferson"
 [api]
 enabled = true
 port = 54321
@@ -8,11 +8,13 @@ port = 54322
 major_version = 17
 [auth]
 enabled = true
-site_url = "langapp://auth/callback"
-additional_redirect_urls = ["exp://127.0.0.1:8081"]
+site_url = "ferson://auth/callback"
+additional_redirect_urls = ["exp://127.0.0.1:8081", "ferson://auth/callback"]
 [storage]
 enabled = true
 file_size_limit = "25MiB"
 [functions.ai-orchestrator]
+verify_jwt = true
+[functions.ai-reply-queue]
 verify_jwt = true
 
