@@ -3,7 +3,8 @@ import { prompts } from '../supabase/functions/_shared/prompts';
 
 describe('conversation prompt policy', () => {
   it('versions the adaptive texting instructions used by the server', () => {
-    expect(prompts.conversation.version).toBe('conversation.v7');
+    expect(prompts.conversation.version).toBe('conversation.v9');
+    expect(prompts.conversation.system).toContain('reinforcementFocus');
     expect(prompts.conversation.system).toContain('Short messages (roughly 1-12 words): usually 3-20 words');
     expect(prompts.conversation.system).toContain('Medium messages (roughly 13-60 words): usually 15-45 words');
     expect(prompts.conversation.system).toContain('Long, substantive messages (over roughly 60 words): allow 30-100 words');
@@ -33,15 +34,15 @@ describe('conversation prompt policy', () => {
     expect(prompts.conversation.system).toContain('When it is false, return an empty annotations array');
   });
 
-  it('distinguishes premium casual texting from standard English review', () => {
-    expect(prompts.tutorReview.version).toBe('tutor-review.v5');
-    expect(prompts.tutorReview.system).toContain('"r u", "gonna", "wanna", "kinda", "gotta", "idk"');
-    expect(prompts.tutorReview.system).toContain('only when the server supplies true');
+  it('uses correction intensity for casual texting guidance', () => {
+    expect(prompts.tutorReview.version).toBe('tutor-review.v8');
+    expect(prompts.tutorReview.system).toContain('focusAreas');
+    expect(prompts.tutorReview.system).toContain('"r u", "gonna", "wanna", "kinda", "gotta", and "idk"');
+    expect(prompts.tutorReview.system).toContain('Under intensive only');
     expect(prompts.tutorReview.system).toContain('For chill');
     expect(prompts.tutorReview.system).toContain('For balanced');
     expect(prompts.tutorReview.system).toContain('For intensive');
-    expect(prompts.tutorReview.system).toContain('regardless of correctionIntensity');
-    expect(prompts.tutorReview.system).toContain('native speakers commonly use it');
+    expect(prompts.tutorReview.system).toContain('native speakers commonly use them');
     expect(prompts.tutorReview.system).toContain('formal speech and writing');
   });
 });

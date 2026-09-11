@@ -1,0 +1,67 @@
+import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+const require=createRequire(import.meta.url);
+const {PGlite}=createRequire(process.env.PGLITE_PACKAGE+'/package.json')('@electric-sql/pglite');
+const ts=require('typescript');
+function moduleFrom(path){const output=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;const module={exports:{}};vm.runInNewContext(output,{module,exports:module.exports,require:(id)=>require(id==='npm:zod@4.4.3'?'zod':id),structuredClone});return module.exports;}
+const {exampleActivity}=moduleFrom('src/domain/activity-example.ts');
+const {blueprintFor,validateActivity}=moduleFrom('supabase/functions/_shared/activity-domain.ts');
+process.on('uncaughtException',e=>{console.error(e.message,e.code??'',e.where??'');process.exit(1);});
+const db=new PGlite();
+await db.exec(`
+create role anon;create role authenticated;create role service_role;
+create schema auth;create schema storage;create table auth.users(id uuid primary key);
+create function auth.uid() returns uuid language sql as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+grant usage on schema auth,storage to authenticated,service_role;
+create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
+create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text,name text,created_at timestamptz default now());
+alter table storage.objects enable row level security;grant select,insert,update,delete on storage.objects to authenticated;
+create function storage.foldername(text) returns text[] language sql as $$select string_to_array($1,'/')$$;
+`);
+await db.exec(readFileSync('supabase/migrations/202609080002_private_activity_library.sql','utf8'));
+const actor='10000000-0000-4000-8000-000000000001',learner='10000000-0000-4000-8000-000000000002',second='10000000-0000-4000-8000-000000000003';
+await db.exec(`insert into auth.users values('${actor}'),('${learner}'),('${second}');insert into activity_administrators(user_id,label) values('${actor}','Editor One'),('${second}','Editor Two');`);
+async function write(action,id,payload={},who=actor){return (await db.query('select activity_admin_write($1,$2,$3,$4) as id',[who,action,id,JSON.stringify(payload)])).rows[0].id;}
+const id=await write('create',null,{storage_path:actor+'/file/lesson.txt',filename:'lesson.txt',mime_type:'text/plain',bytes:20});
+const doc=exampleActivity(),validation=validateActivity(doc),blueprint=blueprintFor(doc);
+await assert.rejects(write('publish',id,{revision:1}));
+await write('save',id,{revision:1,document:doc,validation});
+await assert.rejects(write('save',id,{revision:1,document:doc,validation}));
+await write('submit',id,{revision:2});
+await assert.rejects(write('approve',id,{revision:3,document:doc,validation,blueprint,human_reviewed:false}));
+await write('approve',id,{revision:3,document:doc,validation,blueprint,human_reviewed:true});
+await assert.rejects(db.query("update activity_versions set document='{}' where id=$1",[id]));
+await assert.rejects(db.query("update activity_answer_keys set answer_key='[]' where version_id=$1",[id]));
+await write('publish',id,{revision:4});
+await db.exec(`set role authenticated;select set_config('request.jwt.claim.sub','${learner}',false);`);
+for(const table of ['activity_administrators','teaching_activities','activity_sources','activity_versions','activity_answer_keys','activity_audit']){
+  assert.equal((await db.query('select count(*)::int as n from '+table)).rows[0].n,0,table+' must be invisible to learners');
+}
+assert.equal((await db.query('select is_activity_admin() as yes')).rows[0].yes,false);
+await assert.rejects(db.query('insert into activity_administrators(user_id,label) values($1,$2)',[learner,'Escalation']));
+await assert.rejects(write('fork',id,{revision:5},actor));
+await assert.rejects(db.query("insert into storage.objects(bucket_id,name) values('activity-originals',$1)",[learner+'/private.txt']));
+await db.exec(`select set_config('request.jwt.claim.sub','${actor}',false);`);
+assert.equal((await db.query('select is_activity_admin() as yes')).rows[0].yes,true);
+assert.equal((await db.query('select count(*)::int as n from activity_versions')).rows[0].n,1);
+await assert.rejects(db.query("update activity_versions set status='published' where id=$1",[id]));
+await db.query("insert into storage.objects(bucket_id,name) values('activity-originals',$1)",[actor+'/original.txt']);
+await db.exec(`select set_config('request.jwt.claim.sub','${learner}',false);`);
+assert.equal((await db.query('select count(*)::int as n from storage.objects')).rows[0].n,0);
+await db.exec('reset role');
+const next=await write('fork',id,{revision:5},second);
+await write('submit',next,{revision:1},second);
+const drift={...blueprint,objective:'Changed'};
+await assert.rejects(write('approve',next,{revision:2,document:doc,validation,blueprint:drift,human_reviewed:true},second));
+await write('approve',next,{revision:2,document:doc,validation,blueprint,human_reviewed:true},second);
+await write('publish',next,{revision:3},second);
+assert.equal((await db.query("select count(*)::int as n from activity_versions where status='published'")).rows[0].n,1);
+assert.equal((await db.query('select status from activity_versions where id=$1',[id])).rows[0].status,'retired');
+const audit=(await db.query("select actor_id,action from activity_audit where version_id=$1 order by id",[next])).rows;
+assert.ok(audit.every(a=>a.actor_id===second));
+assert.deepEqual(audit.map(a=>a.action),['fork','submit','approve','publish']);
+await write('retire',next,{revision:4},second);
+assert.equal((await db.query("select count(*)::int as n from activity_versions where status='published'")).rows[0].n,0);
+await db.close();console.log('Activity database checks passed: workflow, revision conflicts, immutable content/keys/blueprint, role isolation, storage privacy, single publication and audit actors.');

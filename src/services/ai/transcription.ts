@@ -5,7 +5,7 @@ import { ensureSession } from './live';
 
 const contentTypeFor = (uri: string) => uri.toLowerCase().endsWith('.webm') ? 'audio/webm' : uri.toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/m4a';
 
-export async function transcribeVoiceMessage(uri: string, interfaceLocale: string): Promise<string> {
+export async function transcribeVoiceMessage(uri: string, interfaceLocale: string, targetLanguage: string): Promise<string> {
   const session = await ensureSession();
   if (!env.EXPO_PUBLIC_SUPABASE_URL || !env.EXPO_PUBLIC_SUPABASE_ANON_KEY) throw new Error('SUPABASE_NOT_CONFIGURED');
   const type = contentTypeFor(uri);
@@ -13,6 +13,7 @@ export async function transcribeVoiceMessage(uri: string, interfaceLocale: strin
   const body = new FormData();
   body.append('feature', 'transcription');
   body.append('interfaceLocale', interfaceLocale);
+  body.append('targetLanguage', targetLanguage);
   const file = new File(uri);
   body.append('file', file, 'voice-message.' + extension);
   const response = await fetch(env.EXPO_PUBLIC_SUPABASE_URL + '/functions/v1/ai-orchestrator', {

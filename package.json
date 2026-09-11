@@ -10,7 +10,9 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "build:activity-library": "expo export --platform web --output-dir dist-activity-library",
+    "activity-library": "node scripts/serve-activity-library.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -37,6 +39,7 @@
     "expo-system-ui": "~57.0.2",
     "expo-web-browser": "~57.0.2",
     "i18next": "^25.6.0",
+    "mammoth": "^1.12.2",
     "posthog-react-native": "^4.66.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",

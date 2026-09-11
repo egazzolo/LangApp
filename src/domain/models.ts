@@ -1,3 +1,4 @@
+import type { VoiceAccent } from '../../supabase/functions/_shared/voice-accents';
 export type InterfaceLocale =
   | "en"
   | "es-419"
@@ -12,7 +13,8 @@ export type InterfaceLocale =
   | "fr"
   | "tr";
 export type CorrectionIntensity = "chill" | "balanced" | "intensive";
-export type PronunciationTarget = "general-american" | "modern-british";
+export type LearningLanguage = "en" | "es";
+export type PronunciationTarget = "general-american" | "modern-british" | "latin-american-spanish" | "castilian-spanish";
 export type CharacterGender = "woman" | "man";
 export type KnowledgeLevel = "general" | "specialist";
 export type RelationshipType =
@@ -37,9 +39,13 @@ export interface Character {
   bio: string;
   currentState: string;
   voiceId: string;
+  voiceAccent?: VoiceAccent;
   avatarUrl?: string;
   knowledgeLevel?: KnowledgeLevel;
   expertiseDomains?: string[];
+  learningLanguage?: LearningLanguage;
+  languageVariant?: PronunciationTarget;
+  countryCode?: string;
   aiDisclosure: true;
 }
 export interface Conversation {
@@ -72,6 +78,7 @@ export interface Message {
   durationSeconds?: number;
   audioUrl?: string;
   audioPath?: string;
+  audioBucket?: 'voice-notes' | 'ferson-voice-replies';
   correction?: Correction;
   annotations?: LanguageAnnotation[];
 }
@@ -92,4 +99,6 @@ export interface TutorReviewRecord {
   acceptCasualTexting?: boolean;
   correctionIntensity?: CorrectionIntensity;
   corrections: TutorCorrectionRecord[];
+  focusAreas?: LearningFocusArea[];
 }
+export interface LearningFocusArea { skillKey:string; category:"grammar"|"vocabulary"|"naturalness"|"pronunciation"|"fluency"|"other"; label:string; evidenceCount:number; confidence:number; }

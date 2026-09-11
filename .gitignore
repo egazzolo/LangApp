@@ -14,3 +14,10 @@ coverage/
 expo-env.d.ts
 # @end expo-cli
 supabase/.temp/
+
+/dist-activity-library/
+/artifacts/activity-library/
+
+# Local authentication signing keys and generated secrets
+/private-keys/
+*.p8

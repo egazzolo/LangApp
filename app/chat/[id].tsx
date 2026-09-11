@@ -1,3 +1,4 @@
+import { deleteAsync } from 'expo-file-system/legacy';
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -39,6 +40,8 @@ import {
   getTutorReview,
   liveConversationProvider,
 } from "@/services/ai/live";
+import { exportConversation } from '@/services/conversation-export';
+import { syncRetention } from '@/services/retention';
 import { transcribeVoiceMessage } from "@/services/ai/transcription";
 import { colors, radius, spacing } from "@/theme/tokens";
 import type { Message } from "@/domain/models";
@@ -61,6 +64,7 @@ import { getCurrentPlan } from "@/services/subscriptions";
 import { learningFacts } from "@/content/learning-facts";
 import { voiceSendingCopy } from "@/content/chat-status-copy";
 import { chatExperienceCopy } from "@/content/chat-experience-copy";
+import { replyIdeaLimitCopy } from "@/content/reply-idea-copy";
 import { createVoiceReplySignedUrl, markReplyDelivered } from "@/services/ai/reply-deliveries";
 
 const makeId = () =>
@@ -92,11 +96,7 @@ export default function Chat() {
   const setCorrectTutorPunctuation = useAppStore(
     (state) => state.setCorrectTutorPunctuation,
   );
-  const acceptCasualTexting = useAppStore((state) => state.acceptCasualTexting);
   const correctionIntensity = useAppStore((state) => state.correctionIntensity);
-  const setAcceptCasualTexting = useAppStore(
-    (state) => state.setAcceptCasualTexting,
-  );
   const showLanguageHighlights = useAppStore(
     (state) => state.showLanguageHighlights,
   );
@@ -106,6 +106,7 @@ export default function Chat() {
   const tutorReviews = useAppStore((state) => state.tutorReviews);
   const addTutorReview = useAppStore((state) => state.addTutorReview);
   const locale = useAppStore((state) => state.locale);
+  const defaultLearningLanguage = useAppStore((state) => state.learningLanguage);
   const voiceEnabled = useAppStore((state) => state.voiceEnabled);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder, 100);
@@ -133,13 +134,15 @@ export default function Chat() {
   const [showFullTranslation, setShowFullTranslation] = useState(false);
   const [plan, setPlan] = useState<Plan>("free");
   const [learningFactIndex, setLearningFactIndex] = useState(0);
-  const casualTextingAvailable = canUse(plan, "casualTextingMode");
+  const correctionHistoryAvailable = canUse(plan, "savedCorrectionHistory");
   const tutorLearningFacts = learningFacts[locale];
   const experienceCopy = chatExperienceCopy[locale];
   const conversation = conversations.find((item) => item.id === id);
   const person = characters.find(
     (item) => item.id === conversation?.characterId,
   );
+  const targetLanguage = person?.learningLanguage ?? defaultLearningLanguage;
+  const targetVariant = person?.languageVariant ?? useAppStore.getState().pronunciationTarget;
   const messages = useMemo(() => all[id] ?? [], [all, id]);
   const previousTutorReviews = tutorReviews[id] ?? [];
   const hasNewTutorMessages = useMemo(() => {
@@ -245,6 +248,7 @@ export default function Chat() {
     await getReply(mine, messages);
   };
 
+  const recordingAction = useRef(false);
   const startRecording = async () => {
     setSendError(null);
     const permission = await requestRecordingPermissionsAsync();
@@ -268,7 +272,7 @@ export default function Chat() {
     setProcessingVoice(true);
     setSendError(null);
     try {
-      const transcript = await transcribeVoiceMessage(uri, locale);
+      const transcript = await transcribeVoiceMessage(uri, locale, targetLanguage);
       const mine: Message = {
         id: makeId(),
         conversationId: id,
@@ -281,6 +285,7 @@ export default function Chat() {
         status: "sent",
       };
       add(id, mine);
+      void syncRetention();
       void track("message_sent", { kind: "voice", has_correction: false });
       setProcessingVoice(false);
       await getReply(mine, messages);
@@ -295,10 +300,20 @@ export default function Chat() {
       setProcessingVoice(false);
     }
   };
+  const runRecordingAction = async (action:()=>Promise<void>) => {
+    if(recordingAction.current || processingVoice || typing)return;
+    recordingAction.current=true;
+    try { await action(); } catch { setSendError(experienceCopy.messageError); }
+    finally { recordingAction.current=false; }
+  };
+  const cancelRecording = async () => {
+    await recorder.stop();
+    await setAudioModeAsync({allowsRecording:false,playsInSilentMode:true});
+    const uri=recorder.uri;
+    if(uri)await deleteAsync(uri,{idempotent:true});
+  };
   const toggleRecording = () => {
-    if (processingVoice || typing) return;
-    if (recorderState.isRecording) void stopAndSendRecording();
-    else void startRecording();
+    void runRecordingAction(recorderState.isRecording ? stopAndSendRecording : startRecording);
   };
   const loadMessageAnnotations = async (message: Message) => {
     if (
@@ -308,7 +323,7 @@ export default function Chat() {
     )
       return;
     try {
-      const result = await getMessageAnnotations(message.text, locale);
+      const result = await getMessageAnnotations(message.text, locale, targetLanguage);
       setMessageAnnotations(id, message.id, result.annotations);
     } catch (error) {
       console.error("Message explanation failed", error);
@@ -325,6 +340,11 @@ export default function Chat() {
       setAssistance(await getReplyAssistance(person, messages, locale));
     } catch (error) {
       console.error("Reply assistance failed", error);
+      if (error instanceof Error && error.message === "REPLY_IDEA_PREMIUM_REQUIRED") {
+        const limitCopy=replyIdeaLimitCopy[locale];
+        Alert.alert(limitCopy.title,limitCopy.body);
+        return;
+      }
       setSendError(
         error instanceof Error &&
           /Anonymous sign-ins are disabled/i.test(error.message)
@@ -352,7 +372,7 @@ export default function Chat() {
       return;
     }
     const checkpoint = unreviewed.at(-1)!;
-    const useCasualTexting = casualTextingAvailable && acceptCasualTexting;
+    const useCasualTexting = false;
     setViewingTutorHistory(false);
     setTutorLoading(true);
     setTutorOpen(true);
@@ -361,6 +381,8 @@ export default function Chat() {
       const result = await getTutorReview(
         unreviewed,
         locale,
+        targetLanguage,
+        targetVariant,
         correctTutorPunctuation,
         useCasualTexting,
         correctionIntensity,
@@ -375,8 +397,13 @@ export default function Chat() {
         acceptCasualTexting: useCasualTexting,
         correctionIntensity,
         corrections: result.corrections,
+        focusAreas: result.focusAreas,
       });
       markTutorReviewed(id, checkpoint.id);
+      if(result.focusedPracticeCompleted){
+        useAppStore.getState().setFocusedPracticeEnabled(false);
+
+      }
     } catch (error) {
       console.error("Tutor review failed", error);
       setTutorOpen(false);
@@ -462,8 +489,13 @@ export default function Chat() {
                 </Text>
               </View>
             </Pressable>
+            <Pressable style={styles.menuItem} onPress={() => {
+              setMenuOpen(false);
+              if (!canUse(plan, "conversationExport")) { Alert.alert("Premium", "Conversation export is available with Premium."); return; }
+              void exportConversation(id).catch(error => Alert.alert("Export", error.message === "PREMIUM_REQUIRED" ? "Conversation export is available with Premium." : "Could not export. Please try again."));
+            }}><Ionicons name="download-outline" size={22} color={colors.primary}/><Text style={styles.menuTitle}>Export conversation {canUse(plan, "conversationExport") ? "" : "(Premium)"}</Text></Pressable>
             <Pressable
-              disabled={!previousTutorReviews.length}
+              disabled={!correctionHistoryAvailable || !previousTutorReviews.length}
               onPress={() => {
                 setMenuOpen(false);
                 setViewingTutorHistory(true);
@@ -471,29 +503,31 @@ export default function Chat() {
               }}
               style={[
                 styles.menuItem,
-                !previousTutorReviews.length && styles.menuItemDisabled,
+                (!correctionHistoryAvailable || !previousTutorReviews.length) && styles.menuItemDisabled,
               ]}
             >
               <View
                 style={[
                   styles.historyCircle,
-                  !previousTutorReviews.length && styles.tutorCircleDisabled,
+                  (!correctionHistoryAvailable || !previousTutorReviews.length) && styles.tutorCircleDisabled,
                 ]}
               >
-                <Ionicons name="time-outline" size={22} color="#fff" />
+                <Ionicons name={correctionHistoryAvailable?"time-outline":"lock-closed"} size={22} color="#fff" />
               </View>
               <View style={styles.menuCopy}>
                 <Text
                   style={[
                     styles.menuTitle,
-                    !previousTutorReviews.length && styles.menuTextDisabled,
+                    (!correctionHistoryAvailable || !previousTutorReviews.length) && styles.menuTextDisabled,
                   ]}
                 >
                   {t("chat.tutorHistory")}
                 </Text>
                 <Text style={styles.menuDescription}>
                   {t(
-                    previousTutorReviews.length
+                    !correctionHistoryAvailable
+                      ? "chat.premiumFeature"
+                      : previousTutorReviews.length
                       ? "chat.tutorHistoryDescription"
                       : "chat.tutorNoHistory",
                   )}
@@ -581,44 +615,6 @@ export default function Chat() {
             >
               {t("chat.correctPunctuation")}
             </Text>
-          </View>
-          <View
-            style={[
-              styles.casualTextingSetting,
-              !casualTextingAvailable && styles.casualTextingLocked,
-            ]}
-          >
-            <View style={styles.casualTextingCopy}>
-              <View style={styles.casualTextingTitleRow}>
-                <Text
-                  style={[
-                    styles.casualTextingTitle,
-                    !casualTextingAvailable && styles.lockedText,
-                  ]}
-                >
-                  {t("chat.casualTexting")}
-                </Text>
-                {!casualTextingAvailable ? (
-                  <View style={styles.premiumBadge}>
-                    <Ionicons name="lock-closed" size={11} color={colors.muted} />
-                    <Text style={styles.premiumBadgeText}>
-                      {t("chat.premiumFeature")}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-              <Text style={styles.casualTextingDescription}>
-                {t("chat.casualTextingDescription")}
-              </Text>
-            </View>
-            <Switch
-              accessibilityLabel={t("chat.casualTexting")}
-              disabled={!casualTextingAvailable}
-              value={casualTextingAvailable && acceptCasualTexting}
-              onValueChange={setAcceptCasualTexting}
-              trackColor={{ false: "#C8C4BE", true: colors.primary }}
-              thumbColor="#fff"
-            />
           </View>
           {tutorLoading ? (
             <View style={styles.tutorLoading}>
@@ -848,11 +844,11 @@ export default function Chat() {
         {recorderState.isRecording ? (
           <View style={styles.recordingStatus}>
             <View style={styles.recordingDot} />
-            <Text style={styles.recordingText}>
+            <Text numberOfLines={1} style={styles.recordingText}>
               {t("chat.recording")}{" "}
               {formatDuration(recorderState.durationMillis / 1000)}
             </Text>
-            <Text style={styles.recordingHint}>{t("chat.tapStop")}</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('common.cancel')} onPress={()=>void runRecordingAction(cancelRecording)} style={styles.cancelRecording}><Ionicons name="trash-outline" size={18} color={colors.danger}/><Text style={styles.cancelRecordingText}>{t('common.cancel')}</Text></Pressable>
           </View>
         ) : (
           <TextInput
@@ -874,7 +870,7 @@ export default function Chat() {
             style={[styles.mic, recorderState.isRecording && styles.micRecording]}
           >
             <Ionicons
-              name={recorderState.isRecording ? "stop" : "mic"}
+              name={recorderState.isRecording ? "send" : "mic"}
               size={21}
               color={recorderState.isRecording ? "#fff" : colors.primary}
             />
@@ -1182,8 +1178,8 @@ function VoiceBubble({
   const status = useAudioPlayerStatus(player);
   useEffect(() => {
     if (!message.audioPath) return;
-    void createVoiceReplySignedUrl(message.audioPath).then((url) => player.replace(url)).catch(() => undefined);
-  }, [message.audioPath, player]);
+    void createVoiceReplySignedUrl(message.audioPath, message.audioBucket ?? (message.sender === 'user' ? 'voice-notes' : 'ferson-voice-replies')).then((url) => player.replace(url)).catch(() => undefined);
+  }, [message.audioPath, message.audioBucket, message.sender, player]);
   const toggle = async () => {
     if (status.playing) {
       player.pause();
@@ -1744,7 +1740,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  micRecording: { backgroundColor: colors.danger },
+  micRecording: { backgroundColor: colors.primary },
   recordingStatus: {
     flex: 1,
     minHeight: 42,
@@ -1761,7 +1757,9 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: colors.danger,
   },
-  recordingText: { fontSize: 14, fontWeight: "800", color: colors.danger },
+  recordingText: { flex: 1, flexShrink: 1, fontSize: 14, fontWeight: "800", color: colors.danger },
+  cancelRecording: { minHeight: 44, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: 12 },
+  cancelRecordingText: { color: colors.danger, fontSize: 14, fontWeight: "700" },
   recordingHint: {
     flex: 1,
     textAlign: "right",

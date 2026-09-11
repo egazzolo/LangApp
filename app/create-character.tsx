@@ -1,6 +1,11 @@
-import { useEffect, useState } from "react";
+import { voiceAccentNotice } from '@/content/voice-accent-copy';
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  TextInput,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -113,6 +118,24 @@ const womenNames = new Set([
   "Chloe",
   "Amara",
 ]);
+type RegionalIdentity = { name:string; gender:CharacterGender; location:string; countryCode:string };
+const regionalIdentities: Record<"english-us"|"english-uk"|"spanish-latam"|"spanish-spain",RegionalIdentity[]> = {
+  "english-us":[
+    {name:"Ashley",gender:"woman",location:"Seattle, United States",countryCode:"US"},{name:"Megan",gender:"woman",location:"Austin, United States",countryCode:"US"},{name:"Jasmine",gender:"woman",location:"Atlanta, United States",countryCode:"US"},{name:"Lauren",gender:"woman",location:"Boston, United States",countryCode:"US"},{name:"Matt",gender:"man",location:"Denver, United States",countryCode:"US"},{name:"Brandon",gender:"man",location:"Chicago, United States",countryCode:"US"},{name:"Ethan",gender:"man",location:"Portland, United States",countryCode:"US"},{name:"Marcus",gender:"man",location:"Philadelphia, United States",countryCode:"US"},
+  ],
+  "english-uk":[
+    {name:"Emily",gender:"woman",location:"Manchester, United Kingdom",countryCode:"GB"},{name:"Sophie",gender:"woman",location:"Bristol, United Kingdom",countryCode:"GB"},{name:"Charlotte",gender:"woman",location:"London, United Kingdom",countryCode:"GB"},{name:"Amelia",gender:"woman",location:"Edinburgh, United Kingdom",countryCode:"GB"},{name:"Oliver",gender:"man",location:"Liverpool, United Kingdom",countryCode:"GB"},{name:"Jack",gender:"man",location:"Leeds, United Kingdom",countryCode:"GB"},{name:"Harry",gender:"man",location:"Birmingham, United Kingdom",countryCode:"GB"},{name:"Callum",gender:"man",location:"Glasgow, United Kingdom",countryCode:"GB"},
+  ],
+  "spanish-latam":[
+    {name:"María",gender:"woman",location:"Medellín, Colombia",countryCode:"CO"},{name:"Valentina",gender:"woman",location:"Buenos Aires, Argentina",countryCode:"AR"},{name:"Camila",gender:"woman",location:"Santiago, Chile",countryCode:"CL"},{name:"Daniela",gender:"woman",location:"Ciudad de México, México",countryCode:"MX"},{name:"Carlos",gender:"man",location:"Bogotá, Colombia",countryCode:"CO"},{name:"Santiago",gender:"man",location:"Quito, Ecuador",countryCode:"EC"},{name:"Diego",gender:"man",location:"Lima, Perú",countryCode:"PE"},{name:"Andrés",gender:"man",location:"San José, Costa Rica",countryCode:"CR"},
+  ],
+  "spanish-spain":[
+    {name:"Lucía",gender:"woman",location:"Madrid, España",countryCode:"ES"},{name:"Marta",gender:"woman",location:"Valencia, España",countryCode:"ES"},{name:"Carmen",gender:"woman",location:"Sevilla, España",countryCode:"ES"},{name:"Irene",gender:"woman",location:"Bilbao, España",countryCode:"ES"},{name:"Javier",gender:"man",location:"Madrid, España",countryCode:"ES"},{name:"Álvaro",gender:"man",location:"Barcelona, España",countryCode:"ES"},{name:"Pablo",gender:"man",location:"Zaragoza, España",countryCode:"ES"},{name:"Sergio",gender:"man",location:"Málaga, España",countryCode:"ES"},
+  ],
+};
+const identityPoolFor = (language: "en"|"es", variant: string) => language === "es"
+  ? regionalIdentities[variant === "castilian-spanish" ? "spanish-spain" : "spanish-latam"]
+  : regionalIdentities[variant === "modern-british" ? "english-uk" : "english-us"];
 const draftLocations = [
   "Austin",
   "Manchester",
@@ -188,25 +211,39 @@ const draftRelationships: RelationshipType[] = [
   "classmate",
   "professional_contact",
 ];
-const avatarChoices: Record<CharacterGender, string[]> = {
-  woman: ["avatar-woman-01", "avatar-woman-02", "avatar-woman-03"],
-  man: ["avatar-man-01", "avatar-man-02"],
+type AvatarChoice = { id: string; minAge: number; maxAge: number };
+const avatarChoices: Record<CharacterGender, AvatarChoice[]> = {
+  woman: [
+    {id:"avatar-woman-01",minAge:24,maxAge:38},{id:"avatar-woman-02",minAge:21,maxAge:34},{id:"avatar-woman-03",minAge:20,maxAge:32},
+    {id:"avatar-woman-04",minAge:46,maxAge:70},{id:"avatar-woman-05",minAge:24,maxAge:39},{id:"avatar-woman-06",minAge:23,maxAge:38},
+    {id:"avatar-woman-07",minAge:28,maxAge:45},{id:"avatar-woman-08",minAge:24,maxAge:39},{id:"avatar-woman-09",minAge:28,maxAge:45},
+  ],
+  man: [
+    {id:"avatar-man-01",minAge:20,maxAge:32},{id:"avatar-man-02",minAge:25,maxAge:39},{id:"avatar-man-03",minAge:33,maxAge:48},
+    {id:"avatar-man-04",minAge:48,maxAge:70},{id:"avatar-man-05",minAge:22,maxAge:35},{id:"avatar-man-06",minAge:20,maxAge:30},
+  ],
 };
-const nextAvatar = (gender: CharacterGender, characters: Character[]) => {
+const nextAvatar = (gender: CharacterGender, age: number, characters: Character[]) => {
   const sameGender = characters.filter(
     (character) => character.gender === gender,
   );
   const used = new Set(sameGender.map((character) => character.avatarUrl));
-  return (
-    avatarChoices[gender].find((avatar) => !used.has(avatar)) ??
-    avatarChoices[gender][sameGender.length % avatarChoices[gender].length]!
-  );
+  const compatible = avatarChoices[gender].filter((avatar)=>age>=avatar.minAge&&age<=avatar.maxAge);
+  const nearest = [...avatarChoices[gender]].sort((a,b)=>Math.min(Math.abs(age-a.minAge),Math.abs(age-a.maxAge))-Math.min(Math.abs(age-b.minAge),Math.abs(age-b.maxAge)));
+  const pool = compatible.length ? compatible : nearest.slice(0,2);
+  const unused = pool.filter((avatar)=>!used.has(avatar.id));
+  return pick(unused.length ? unused : pool).id;
 };
 const pick = <T,>(items: T[]): T =>
   items[Math.floor(Math.random() * items.length)]!;
 const pickTraits = () =>
   [...draftTraits].sort(() => Math.random() - 0.5).slice(0, 3);
 const openingMessage = (character: Character, contactCount: number) => {
+  if (character.learningLanguage === "es") {
+    const spanish = [`¡Hola! Soy ${character.name}. ¿Cómo va tu día?`, "¡Hola! ¿Qué tal todo?", "Oye, cuéntame algo bueno de tu día."];
+    const score = [...character.name].reduce((total, letter) => total + letter.charCodeAt(0), 0);
+    return spanish[(score + contactCount) % spanish.length]!;
+  }
   const relationshipOpeners: Partial<Record<RelationshipType, string[]>> = {
     friend: [
       `Hey, it’s ${character.name}. I was about to make some coffee—what are you up to?`,
@@ -247,12 +284,18 @@ const openingMessage = (character: Character, contactCount: number) => {
   return options[(nameScore + contactCount) % options.length]!;
 };
 export default function CreateCharacter() {
+  const formScroll=useRef<ScrollView>(null);
+  const revealField=()=>setTimeout(()=>{const input=TextInput.State.currentlyFocusedInput();if(input)formScroll.current?.scrollResponderScrollNativeHandleToKeyboard(input,100,true);},100);
+  useEffect(()=>{const sub=Keyboard.addListener('keyboardDidShow',revealField);return()=>sub.remove();},[]);
+
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const add = useAppStore((state) => state.addCharacter);
   const complete = useAppStore((state) => state.completeOnboarding);
   const existingCharacters = useAppStore((state) => state.characters);
   const locale = useAppStore((state) => state.locale);
+  const learningLanguage = useAppStore((state) => state.learningLanguage);
+  const pronunciationTarget = useAppStore((state) => state.pronunciationTarget);
   const specialistText = specialistCopy[locale];
   const [name, setName] = useState("Sarah");
   const [gender, setGender] = useState<CharacterGender>("woman");
@@ -261,6 +304,7 @@ export default function CreateCharacter() {
   );
   const [age, setAge] = useState("29");
   const [location, setLocation] = useState("Seattle");
+  const [countryCode, setCountryCode] = useState("US");
   const [job, setJob] = useState("Veterinary nurse");
   const [relationship, setRelationship] = useState<RelationshipType>("friend");
   const [selected, setSelected] = useState(["Warm", "Outgoing"]);
@@ -287,29 +331,22 @@ export default function CreateCharacter() {
     const existingNames = new Set(
       existingCharacters.map((character) => character.name.toLocaleLowerCase()),
     );
-    const matchingNames = draftNames.filter(
-      (candidate) =>
-        womenNames.has(candidate) === (generatedGender === "woman"),
-    );
-    const availableNames = matchingNames.filter(
-      (candidate) =>
-        !existingNames.has(candidate.toLocaleLowerCase()) &&
-        candidate.toLocaleLowerCase() !== name.trim().toLocaleLowerCase(),
-    );
+    const regionalPool = identityPoolFor(learningLanguage, pronunciationTarget).filter((identity)=>identity.gender===generatedGender);
+    const availableIdentities = regionalPool.filter((identity)=>!existingNames.has(identity.name.toLocaleLowerCase())&&identity.name.toLocaleLowerCase()!==name.trim().toLocaleLowerCase());
+    const identity = pick(availableIdentities.length ? availableIdentities : regionalPool);
     setGender(generatedGender);
-    const generatedName =
-      availableNames.length > 0
-        ? pick(availableNames)
-        : `${pick(matchingNames)} ${String(existingCharacters.length + 1)}`;
+    const generatedName = availableIdentities.length ? identity.name : `${identity.name} ${String(existingCharacters.length + 1)}`;
     setName(generatedName);
-    setAge(String(20 + Math.floor(Math.random() * 56)));
-    setLocation(pick(draftLocations));
+    const generatedAge = 20 + Math.floor(Math.random() * 51);
+    setAge(String(generatedAge));
+    setLocation(identity.location);
+    setCountryCode(identity.countryCode);
     const generatedJob = pick(draftJobs);
     setJob(generatedJob);
     if (specialist) setExpertise(generatedJob);
     setRelationship(pick(draftRelationships));
     setSelected(pickTraits());
-    setAvatarUrl(nextAvatar(generatedGender, existingCharacters));
+    setAvatarUrl(nextAvatar(generatedGender, generatedAge, existingCharacters));
     setDraftReady(true);
     if (showLoading) setDrafting(false);
   };
@@ -336,6 +373,9 @@ export default function CreateCharacter() {
         personality: selected,
         knowledgeLevel: specialist && specialistAvailable ? "specialist" : "general",
         expertiseDomains: specialist && specialistAvailable ? [expertise.trim() || job.trim()] : [],
+        learningLanguage,
+        languageVariant: pronunciationTarget,
+        countryCode,
       });
       const cid = `conversation-${character.id}`;
       const opening = openingMessage(character, existingCharacters.length);
@@ -380,10 +420,12 @@ export default function CreateCharacter() {
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={styles.content}>
+      <KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==='ios'?'padding':'height'}>
+      <ScrollView ref={formScroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={styles.content}>
         <Text style={styles.kicker}>{t("create.kicker")}</Text>
         <Text style={styles.title}>{existingCharacters.length === 0 ? t("create.title") : additionalFersonTitle[locale]}</Text>
         <Text style={styles.body}>{t("create.subtitle")}</Text>
+        {learningLanguage === "en" && <Text style={styles.body}>{voiceAccentNotice[locale]}</Text>}
         <View style={styles.aiAction}>
           <Button
             variant="secondary"
@@ -396,25 +438,29 @@ export default function CreateCharacter() {
           )}
         </View>
         <View style={styles.form}>
-          <Field label={t("create.name")} value={name} onChangeText={setName} />
+          <Field onFocus={revealField} label={t("create.name")} value={name} onChangeText={setName} />
           <View style={styles.row}>
             <View style={{ flex: 1 }}>
-              <Field
+              <Field onFocus={revealField}
                 label={t("create.age")}
                 value={age}
                 keyboardType="number-pad"
                 onChangeText={setAge}
+                onEndEditing={() => {
+                  const numericAge = Number(age);
+                  if (numericAge >= 18) setAvatarUrl(nextAvatar(gender, numericAge, existingCharacters));
+                }}
               />
             </View>
             <View style={{ flex: 2 }}>
-              <Field
+              <Field onFocus={revealField}
                 label={t("create.from")}
                 value={location}
                 onChangeText={setLocation}
               />
             </View>
           </View>
-          <Field label={t("create.job")} value={job} onChangeText={setJob} />
+          <Field onFocus={revealField} label={t("create.job")} value={job} onChangeText={setJob} />
           <Pressable
             accessibilityRole="button"
             accessibilityState={{ selected: specialist, disabled: !specialistAvailable }}
@@ -425,7 +471,7 @@ export default function CreateCharacter() {
             <View style={styles.specialistCopy}><View style={styles.specialistTitleRow}><Text style={[styles.specialistTitle,!specialistAvailable&&styles.lockedText]}>{specialistText.title}</Text><Text style={styles.premiumLabel}>PREMIUM</Text></View><Text style={styles.specialistBody}>{specialistText.body}</Text></View>
             {specialistAvailable ? <Ionicons name={specialist ? "checkmark-circle" : "ellipse-outline"} size={23} color={colors.primary}/> : null}
           </Pressable>
-          {specialist && specialistAvailable ? <Field label={specialistText.field} value={expertise} onChangeText={setExpertise} placeholder={job || specialistText.example}/> : null}
+          {specialist && specialistAvailable ? <Field onFocus={revealField} label={specialistText.field} value={expertise} onChangeText={setExpertise} placeholder={job || specialistText.example}/> : null}
           <Text style={styles.label}>{t("create.gender")}</Text>
           <View style={styles.genderRow}>
             {(["woman", "man"] as CharacterGender[]).map((value) => (
@@ -433,7 +479,7 @@ export default function CreateCharacter() {
                 key={value}
                 onPress={() => {
                   setGender(value);
-                  setAvatarUrl(nextAvatar(value, existingCharacters));
+                  setAvatarUrl(nextAvatar(value, Number(age) || 30, existingCharacters));
                 }}
                 style={[
                   styles.genderOption,
@@ -543,6 +589,7 @@ export default function CreateCharacter() {
           onPress={() => void submit()}
         />
       </View>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }

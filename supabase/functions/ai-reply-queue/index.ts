@@ -1,10 +1,14 @@
+import { speechInstructions, resolveVoiceAccent } from '../_shared/voice-accents.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+// Supabase provides this global when running the deployed function.
+declare const EdgeRuntime: { waitUntil(work: Promise<unknown>): void };
 
 const headers = { 'Content-Type': 'application/json' };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers });
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ttsVoices = {
-  woman: ['coral','nova','shimmer','marin','sage'],
+  woman: ['nova','shimmer','coral'],
   man: ['ash','echo','onyx','verse','cedar','ballad','fable'],
 } as const;
 const voiceFor = (identity: unknown, gender: unknown, name: unknown) => {
@@ -45,6 +49,15 @@ Deno.serve(async (req) => {
   const work = (async () => {
     try {
       await admin.from('ai_reply_deliveries').update({ status: 'processing' }).eq('id', deliveryId).eq('user_id', user.id);
+      const targetLanguage=orchestratorBody?.context?.targetLanguage==='es'?'es':'en';
+      const {data:focusSignals}=await admin.from('learning_skill_signals').select('skill_key,category,label,evidence_count,confidence').eq('user_id',user.id).eq('target_language',targetLanguage).is('mastered_at',null).order('evidence_count',{ascending:false}).order('last_seen_at',{ascending:false}).limit(5);
+      let focusedPractice=false;
+      if(orchestratorBody?.context?.focusedPractice===true){
+        const now=new Date().toISOString();
+        const {data:entitlement}=await admin.from('profiles').select('is_premium,trial_ends_at,grace_period_ends_at,premium_expires_at').eq('id',user.id).maybeSingle();
+        focusedPractice=Boolean((entitlement?.is_premium===true&&(!entitlement.premium_expires_at||entitlement.premium_expires_at>now))||(entitlement?.trial_ends_at&&entitlement.trial_ends_at>now)||(entitlement?.grace_period_ends_at&&entitlement.grace_period_ends_at>now));
+      }
+      orchestratorBody.context={...orchestratorBody.context,reinforcementFocus:focusSignals??[],focusedPractice};
       const response = await fetch(`${url}/functions/v1/ai-orchestrator`, { method: 'POST', headers: { Authorization: token, 'Content-Type': 'application/json' }, body: JSON.stringify(orchestratorBody) });
       const result = await response.json();
       if (!response.ok || !result?.data) throw new Error(typeof result?.error === 'string' ? result.error : `orchestrator_${response.status}`);
@@ -63,12 +76,14 @@ Deno.serve(async (req) => {
         const { data: reserved, error: reserveError } = await admin.rpc('reserve_ferson_voice_reply', { p_user_id: user.id, p_delivery_id: deliveryId, p_limit: hasPremium ? 5000 : 5 });
         if (!reserveError && reserved === true) {
           const ttsStarted = Date.now();
-          const ttsModel = Deno.env.get('OPENAI_TTS_MODEL') ?? 'tts-1';
+          const ttsModel = 'gpt-4o-mini-tts';
+          const speechCharacter=orchestratorBody?.context?.character??{};
+          console.info('ferson_voice_selection',{deliveryId,model:ttsModel,premium:hasPremium,voice:voiceFor(speechCharacter.voiceId,speechCharacter.gender,speechCharacter.name),gender:speechCharacter.gender==='woman'?'woman':speechCharacter.gender==='man'?'man':'unknown',accent:resolveVoiceAccent(hasPremium,speechCharacter)});
           try {
             const speech = await fetch('https://api.openai.com/v1/audio/speech', {
               method: 'POST',
               headers: { Authorization: `Bearer ${Deno.env.get('OPENAI_API_KEY')!}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ model: ttsModel, voice: voiceFor(orchestratorBody?.context?.character?.voiceId, orchestratorBody?.context?.character?.gender, orchestratorBody?.context?.character?.name), input: reply.text, response_format: 'mp3', speed: 1 }),
+              body: JSON.stringify({ model: ttsModel, voice: voiceFor(orchestratorBody?.context?.character?.voiceId, orchestratorBody?.context?.character?.gender, orchestratorBody?.context?.character?.name), input: reply.text, instructions: speechInstructions(hasPremium,orchestratorBody?.context?.character??{},targetLanguage,orchestratorBody?.context?.targetVariant), response_format: 'mp3', speed: 1 }),
             });
             const requestId = speech.headers.get('x-request-id');
             if (!speech.ok) {
@@ -80,7 +95,7 @@ Deno.serve(async (req) => {
             const { error: uploadError } = await admin.storage.from('ferson-voice-replies').upload(audioPath, audio, { contentType: 'audio/mpeg', upsert: false });
             if (uploadError) throw new Error(`tts_storage_${uploadError.name ?? 'error'}`);
             reply = { ...reply, kind: 'voice', audioPath };
-            await admin.from('ai_usage').insert({ user_id: user.id, conversation_id: null, provider: 'openai', model: ttsModel, feature: 'speech_generation', request_id: requestId, latency_ms: Date.now()-ttsStarted, success: true, http_status: speech.status, retryable: false, retry_count: 0, estimated_cost_usd: reply.text.length * 15 / 1000000 });
+            await admin.from('ai_usage').insert({ user_id: user.id, conversation_id: null, provider: 'openai', model: ttsModel, feature: 'speech_generation', request_id: requestId, latency_ms: Date.now()-ttsStarted, success: true, http_status: speech.status, retryable: false, retry_count: 0 });
           } catch (ttsError) {
             await admin.from('ferson_voice_reply_reservations').delete().eq('delivery_id', deliveryId).eq('user_id', user.id);
             console.error('ferson_voice_reply_failed', { code: ttsError instanceof Error ? ttsError.message.replace(/[^a-z0-9_-]/gi,'_').slice(0,80) : 'unknown' });

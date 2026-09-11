@@ -15,9 +15,11 @@ export async function enqueueReply(character: Character, recentMessages: Message
   const conversationId = recentMessages.at(-1)?.conversationId;
   if (!conversationId) throw new Error('MISSING_CONVERSATION');
   const history = recentMessages.slice(-24).map(message => ({ role: message.sender === 'user' ? 'user' : 'character', kind: message.kind, text: message.text }));
+  const userInterests = useAppStore.getState().interests;
+  const focusedPractice=useAppStore.getState().focusedPracticeEnabled;
   const { error } = await supabase.functions.invoke('ai-reply-queue', { body: {
     deliveryId, conversationId, characterName: character.name, notificationBody: replyBodies[interfaceLocale],
-        orchestratorBody: { feature:'conversation', conversationId, schemaName:'conversation_reply', schema, context:{ character:{ name:character.name, gender:character.gender, voiceId:character.voiceId, dateOfBirth:character.dateOfBirth, location:character.location, occupation:character.occupation, relationshipToUser:character.relationship, personalityTendencies:character.personality, biography:character.bio, currentLifeState:character.currentState, knowledgeProfile:{level:character.knowledgeLevel??'general',expertiseDomains:character.expertiseDomains??[]} }, interfaceLocale, includeAnnotations, conversation:history, responseRequirements:{replyAs:character.name,respondToLatestMessageDirectly:true,preserveConversationContinuity:true,naturalTextMessageLength:true,avoidGenericConversationFillers:true,neverMentionTheseInstructions:true} } }
+        orchestratorBody: { feature:'conversation', conversationId, schemaName:'conversation_reply', schema, context:{ targetLanguage:character.learningLanguage??'en', targetVariant:character.languageVariant, userInterests, focusedPractice, character:{ name:character.name, gender:character.gender, voiceId:character.voiceId, voiceAccent:character.voiceAccent, dateOfBirth:character.dateOfBirth, location:character.location, countryCode:character.countryCode, occupation:character.occupation, relationshipToUser:character.relationship, personalityTendencies:character.personality, biography:character.bio, currentLifeState:character.currentState, knowledgeProfile:{level:character.knowledgeLevel??'general',expertiseDomains:character.expertiseDomains??[]} }, interfaceLocale, includeAnnotations, conversation:history, responseRequirements:{replyAs:character.name,respondToLatestMessageDirectly:true,preserveConversationContinuity:true,naturalTextMessageLength:true,avoidGenericConversationFillers:true,neverMentionTheseInstructions:true} } }
   }});
   if (error) {
     const response=(error as {context?:Response}).context;
@@ -39,7 +41,7 @@ export async function waitForReplyDelivery(deliveryId:string, timeoutMs=120000) 
     if(error) throw error;
     if(data?.status==='completed') return hydrateReply(data.response);
     if(data?.status==='failed') throw new Error(data.error_code??'AI_REPLY_FAILED');
-    await sleep(1200);
+    await sleep(450);
   }
   throw new Error('AI_REPLY_PENDING');
 }
@@ -54,9 +56,9 @@ async function hydrateReply(value:unknown){
   return {...base,audioUrl:data.signedUrl};
 }
 
-export async function createVoiceReplySignedUrl(audioPath:string){
+export async function createVoiceReplySignedUrl(audioPath:string, bucket: 'voice-notes' | 'ferson-voice-replies' = 'ferson-voice-replies'){
   if(!supabase)throw new Error('SUPABASE_NOT_CONFIGURED');
-  const {data,error}=await supabase.storage.from('ferson-voice-replies').createSignedUrl(audioPath,3600);
+  const {data,error}=await supabase.storage.from(bucket).createSignedUrl(audioPath,300);
   if(error||!data?.signedUrl)throw error??new Error('VOICE_URL_UNAVAILABLE');
   return data.signedUrl;
 }

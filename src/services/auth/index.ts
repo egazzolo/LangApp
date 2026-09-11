@@ -1,3 +1,4 @@
+import { restoreSignedInAccount } from './sign-out';
 import * as WebBrowser from 'expo-web-browser';
 import { supabase } from '@/services/supabase/client';
 
@@ -29,7 +30,7 @@ export async function registerWithEmail(email: string, password: string) {
   }
   return { needsEmailConfirmation: !data.session };
 }
-export async function signInWithEmail(email: string, password: string) { const { error } = await client().auth.signInWithPassword({ email, password }); if (error) throw error; }
+export async function signInWithEmail(email: string, password: string) { const { error } = await client().auth.signInWithPassword({ email, password }); if (error) throw error; await restoreSignedInAccount(); }
 export async function verifyEmailCode(email: string, token: string) {
   const { data, error } = await client().auth.verifyOtp({
     email: email.trim(),
@@ -38,6 +39,7 @@ export async function verifyEmailCode(email: string, token: string) {
   });
   if (error) throw error;
   if (!data.session) throw new Error('Could not verify this code. Please try again.');
+  await restoreSignedInAccount();
 }
 export async function resendSignupCode(email: string) {
   const { error } = await client().auth.resend({
@@ -55,7 +57,7 @@ export async function continueWithSocial(provider: SocialProvider) {
 }
 export async function completeAuthFromUrl(url: string) {
   const parsed = new URL(url); const query = parsed.searchParams; const fragment = new URLSearchParams(parsed.hash.slice(1));
-  const code = query.get('code'); if (code) { const { error } = await client().auth.exchangeCodeForSession(code); if (error) throw error; return true; }
+  const code = query.get('code'); if (code) { const { error } = await client().auth.exchangeCodeForSession(code); if (error) throw error; await restoreSignedInAccount(); return true; }
   const accessToken = fragment.get('access_token') ?? query.get('access_token'); const refreshToken = fragment.get('refresh_token') ?? query.get('refresh_token');
-  if (!accessToken || !refreshToken) return false; const { error } = await client().auth.setSession({ access_token: accessToken, refresh_token: refreshToken }); if (error) throw error; return true;
+  if (!accessToken || !refreshToken) return false; const { error } = await client().auth.setSession({ access_token: accessToken, refresh_token: refreshToken }); if (error) throw error; await restoreSignedInAccount(); return true;
 }

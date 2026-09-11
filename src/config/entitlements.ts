@@ -1,5 +1,7 @@
 export type Plan = "free" | "premium_monthly" | "premium_annual";
 export interface Entitlements {
+  conversationExport: boolean;
+  regionalAccents: boolean;
   maxActiveCharacters: number;
   monthlyMessages: number;
   monthlyUserVoiceMessages: number;
@@ -16,6 +18,8 @@ export interface Entitlements {
 }
 export const entitlements: Record<Plan, Entitlements> = {
   free: {
+    conversationExport: false,
+    regionalAccents: false,
     maxActiveCharacters: 2,
     monthlyMessages: 120,
     monthlyUserVoiceMessages: 5,
@@ -31,6 +35,8 @@ export const entitlements: Record<Plan, Entitlements> = {
     specialistFersons: false,
   },
   premium_monthly: {
+    conversationExport: true,
+    regionalAccents: false,
     maxActiveCharacters: 20,
     monthlyMessages: 5000,
     monthlyUserVoiceMessages: 5000,
@@ -46,6 +52,8 @@ export const entitlements: Record<Plan, Entitlements> = {
     specialistFersons: true,
   },
   premium_annual: {
+    conversationExport: true,
+    regionalAccents: false,
     maxActiveCharacters: 20,
     monthlyMessages: 5000,
     monthlyUserVoiceMessages: 5000,

@@ -21,5 +21,8 @@ This is a future feature and is not part of the current paid implementation.
 ## Progress reports
 - First report after at least 7 days, 20 user messages, and 3 sessions.
 - Later reports require another 7 active days and 20 new messages.
-- Include initial mistakes, improvement examples, correctly used forms, recurring problems, priorities, and personalized exercises.
+- Include initial mistakes, improvement examples, correctly used forms, recurring problems, and priorities.
 
+
+## Launch scope
+Public descriptions and membership benefits cover conversations, voice messages, Tutor and reply ideas. The private Activity Library remains internal work; do not advertise worksheets, role-based activities, quizzes or a Focused Practice feature for this release.

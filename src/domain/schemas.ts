@@ -48,6 +48,15 @@ export const tutorReviewSchema = z.object({
     corrected: z.string().trim().min(1).max(600),
     alternatives: z.array(z.string().trim().min(1).max(600)).min(1).max(3),
   })).max(12),
+  focusAreas: z.array(z.object({
+    skillKey:z.string().trim().regex(/^[a-z0-9_]+$/).max(80),
+    category:z.enum(['grammar','vocabulary','naturalness','pronunciation','fluency','other']),
+    label:z.string().trim().min(1).max(120),
+    evidenceCount:z.number().int().min(1).max(20),
+    confidence:z.number().min(0).max(1),
+  })).max(8),
+  strengthenedAreas:z.array(z.object({skillKey:z.string().trim().regex(/^[a-z0-9_]+$/).max(80),successfulUses:z.number().int().min(1).max(3)})).max(8),
+  focusedPracticeCompleted:z.boolean().optional(),
 });
 
 export const messageAnnotationsSchema = z.object({

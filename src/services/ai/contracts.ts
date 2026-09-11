@@ -4,6 +4,7 @@ import type {
   InterfaceLocale,
   LanguageAnnotation,
   Message,
+  LearningLanguage,
 } from "@/domain/models";
 export interface CharacterDraft {
   name: string;
@@ -16,6 +17,10 @@ export interface CharacterDraft {
   personality: string[];
   knowledgeLevel?: Character["knowledgeLevel"];
   expertiseDomains?: string[];
+  learningLanguage: LearningLanguage;
+  languageVariant: Character["languageVariant"];
+  countryCode?: string;
+  voiceAccent?: Character["voiceAccent"];
 }
 export interface CharacterProvider {
   generate(input: CharacterDraft): Promise<Character>;

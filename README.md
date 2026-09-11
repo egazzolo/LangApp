@@ -20,3 +20,7 @@ All screen copy uses i18next keys. Resources are in `src/i18n/resources.ts`; loc
 ## Architecture and deployment
 
 See `ARCHITECTURE.md`. EAS profiles are in `eas.json`. Native Apple/Google billing should implement the internal entitlement interface and send signed store events to a server endpoint for verification—RevenueCat is intentionally not used. Push scheduling, subscription webhooks, data export/deletion jobs, and production provider adapters require platform credentials before store release.
+
+## Retention and conversation export
+
+Audio drops to lower quality after 15 days. Audio and conversation messages expire after six calendar months for every plan; academic records have no automatic expiry. Conversation export requires Premium. See [the worker runbook](workers/audio-retention/README.md) for deployment, tests, scheduler configuration, and mobile rollout requirements.

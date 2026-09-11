@@ -1,0 +1,6 @@
+*
+!Dockerfile
+!.dockerignore
+!index.mjs
+!policy.mjs
+!codec.check.mjs

@@ -9,7 +9,7 @@ import type { Character } from "@/domain/models";
 const id = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const birthDate = (age: number) => `${new Date().getFullYear() - age}-04-12`;
 const voices = {
-  woman: ["coral", "nova", "shimmer", "marin", "sage"],
+  woman: ["nova", "shimmer", "coral"],
   man: ["ash", "echo", "onyx", "verse", "cedar", "ballad", "fable"],
 } as const;
 const voiceFor = (input: CharacterDraft) => {
@@ -37,9 +37,13 @@ export const mockCharacterProvider: CharacterProvider = {
       currentState:
         "Planning a relaxed weekend and wondering whether to move apartments.",
       voiceId: voiceFor(input),
+      voiceAccent: input.voiceAccent ?? "auto",
       avatarUrl: input.avatarUrl,
       knowledgeLevel: input.knowledgeLevel ?? "general",
       expertiseDomains: input.expertiseDomains ?? [],
+      learningLanguage: input.learningLanguage,
+      languageVariant: input.languageVariant,
+      countryCode: input.countryCode,
       aiDisclosure: true,
     };
   },

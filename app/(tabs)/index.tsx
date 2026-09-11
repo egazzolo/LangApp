@@ -13,8 +13,11 @@ import { useTranslation } from "react-i18next";
 import { Avatar, Screen } from "@/components/ui";
 import { useAppStore } from "@/store/app-store";
 import { colors, radius, spacing } from "@/theme/tokens";
+import { addFersonCopy } from "@/content/add-ferson-copy";
 export default function Inbox() {
   const { t } = useTranslation();
+  const locale = useAppStore((s) => s.locale);
+  const addLabel = addFersonCopy[locale];
   const conversations = useAppStore((s) => s.conversations);
   const characters = useAppStore((s) => s.characters);
   const deleteConversation = useAppStore((s) => s.deleteConversation);
@@ -44,16 +47,15 @@ export default function Inbox() {
     <Screen>
       <View style={styles.header}>
         <View>
-          <Text style={styles.greeting}>{t("inbox.greeting")}</Text>
           <Text style={styles.title}>{t("inbox.title")}</Text>
         </View>
         <Pressable
-          accessibilityLabel={t("people.add")}
+          accessibilityLabel={addLabel}
           onPress={() => router.push("/create-character")}
           style={styles.add}
         >
           <Ionicons name="person-add-outline" size={19} color={colors.primary} />
-          <Text style={styles.addText}>{t("people.add")}</Text>
+          <Text style={styles.addText}>{addLabel}</Text>
         </Pressable>
       </View>
       <ScrollView contentContainerStyle={styles.list}>
@@ -80,7 +82,7 @@ export default function Inbox() {
                   <View style={styles.copy}>
                     <View style={styles.line}>
                       <Text style={styles.name}>{person.name}</Text>
-                      <Text style={styles.time}>{t("inbox.now")}</Text>
+                      <Text style={styles.time}>{c.lastMessage ? new Date(c.updatedAt).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}) : ""}</Text>
                     </View>
                     <View style={styles.line}>
                       <Text numberOfLines={1} style={styles.preview}>

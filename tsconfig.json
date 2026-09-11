@@ -6,8 +6,12 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "npm:zod@4.4.3": [
+        "./node_modules/zod"
       ]
-    }
+    },
+    "allowImportingTsExtensions": true
   },
   "include": [
     "app/**/*.ts",

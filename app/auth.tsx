@@ -40,6 +40,7 @@ export default function AuthScreen() {
   const confirmInterfaceLanguage = useAppStore(
     (state) => state.confirmInterfaceLanguage,
   );
+  const [languageConfirmedThisVisit, setLanguageConfirmedThisVisit] = useState(false);
   const [mode, setMode] = useState<"register" | "signin">("register");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -56,12 +57,12 @@ export default function AuthScreen() {
     try {
       if (mode === "signin") {
         await signInWithEmail(email.trim(), password);
-        router.replace("/");
+        router.replace(useAppStore.getState().onboarded ? "/(tabs)" : "/onboarding");
       } else {
         const normalizedEmail = email.trim();
         const result = await registerWithEmail(normalizedEmail, password);
         if (result.needsEmailConfirmation) setPendingEmail(normalizedEmail);
-        else router.replace("/");
+        else router.replace(useAppStore.getState().onboarded ? "/(tabs)" : "/onboarding");
       }
     } catch (reason) {
       setError(
@@ -79,7 +80,7 @@ export default function AuthScreen() {
     setError(null);
     try {
       await verifyEmailCode(pendingEmail, verificationCode);
-      router.replace("/");
+      router.replace(useAppStore.getState().onboarded ? "/(tabs)" : "/onboarding");
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -114,7 +115,7 @@ export default function AuthScreen() {
     setError(null);
     setNotice(null);
     try {
-      if (await continueWithSocial(provider)) router.replace("/");
+      if (await continueWithSocial(provider)) router.replace(useAppStore.getState().onboarded ? "/(tabs)" : "/onboarding");
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -131,7 +132,7 @@ export default function AuthScreen() {
     I18nManager.allowRTL(value === "ar");
   };
   const copy = authCopy[locale];
-  if (!hasSelectedInterfaceLanguage)
+  if (!hasSelectedInterfaceLanguage || !languageConfirmedThisVisit)
     return (
       <View style={styles.languageScreen}>
         <View style={styles.languageHeader}>
@@ -167,7 +168,7 @@ export default function AuthScreen() {
           ))}
         </ScrollView>
         <View style={[styles.languageFooter, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-          <Pressable onPress={confirmInterfaceLanguage} style={styles.primary}>
+          <Pressable onPress={() => { confirmInterfaceLanguage(); setLanguageConfirmedThisVisit(true); }} style={styles.primary}>
             <Text style={styles.primaryText}>{t("common.next")}</Text>
           </Pressable>
         </View>

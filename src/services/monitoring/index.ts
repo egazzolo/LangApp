@@ -1,7 +1,9 @@
+import { Platform } from 'react-native';
 import * as Sentry from '@sentry/react-native';
 import { env } from '@/config/env';
 
-const sensitiveKey = /(authorization|cookie|token|secret|password|email|name|text|message|transcript|prompt|response|content|body|url|uri)/i;
+const privateAdminRoute = () => typeof window !== 'undefined' && window.location?.pathname.startsWith('/admin');
+const sensitiveKey = /(worksheet|answer|activity|filename|authorization|cookie|token|secret|password|email|name|text|message|transcript|prompt|response|content|body|url|uri)/i;
 const safeCode = /^[A-Z0-9_.:-]{1,80}$/i;
 
 function scrub(value: unknown, key = '', depth = 0): unknown {
@@ -15,7 +17,7 @@ function scrub(value: unknown, key = '', depth = 0): unknown {
 }
 
 export function initializeMonitoring() {
-  if (!env.EXPO_PUBLIC_SENTRY_DSN) return;
+  if (!env.EXPO_PUBLIC_SENTRY_DSN || privateAdminRoute() || (Platform.OS === 'web' && typeof window === 'undefined')) return;
   Sentry.init({
     dsn: env.EXPO_PUBLIC_SENTRY_DSN,
     sendDefaultPii: false,
@@ -24,10 +26,12 @@ export function initializeMonitoring() {
     enableNative: true,
     enableAutoSessionTracking: true,
     beforeBreadcrumb(breadcrumb) {
+      if (privateAdminRoute()) return null;
       if (breadcrumb.category === 'console' || breadcrumb.category === 'fetch' || breadcrumb.category === 'xhr') return null;
       return scrub(breadcrumb) as typeof breadcrumb;
     },
     beforeSend(event) {
+      if (privateAdminRoute()) return null;
       delete event.user;
       delete event.request;
       delete event.breadcrumbs;

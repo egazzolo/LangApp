@@ -103,6 +103,8 @@ export async function getReplyAssistance(
       schema: assistanceJsonSchema,
       context: {
         interfaceLocale,
+        targetLanguage: character.learningLanguage ?? "en",
+        targetVariant: character.languageVariant,
         situation,
         character: {
           name: character.name,
@@ -121,7 +123,18 @@ export async function getReplyAssistance(
       },
     },
   });
-  if (error) throw error;
+  if (error) {
+    const response = (error as { context?: Response }).context;
+    if (response) {
+      try {
+        const detail = await response.clone().json() as { error?: string };
+        if (detail.error === "reply_idea_premium_required") throw new Error("REPLY_IDEA_PREMIUM_REQUIRED");
+      } catch (detailError) {
+        if (detailError instanceof Error && detailError.message === "REPLY_IDEA_PREMIUM_REQUIRED") throw detailError;
+      }
+    }
+    throw error;
+  }
   return replyAssistanceSchema.parse(data?.data);
 }
 
@@ -156,13 +169,17 @@ const tutorReviewJsonSchema = {
         ],
       },
     },
+    focusAreas:{type:"array",maxItems:8,items:{type:"object",additionalProperties:false,properties:{skillKey:{type:"string",pattern:"^[a-z0-9_]+$",maxLength:80},category:{type:"string",enum:["grammar","vocabulary","naturalness","pronunciation","fluency","other"]},label:{type:"string",minLength:1,maxLength:120},evidenceCount:{type:"integer",minimum:1,maximum:20},confidence:{type:"number",minimum:0,maximum:1}},required:["skillKey","category","label","evidenceCount","confidence"]}},
+    strengthenedAreas:{type:"array",maxItems:8,items:{type:"object",additionalProperties:false,properties:{skillKey:{type:"string",pattern:"^[a-z0-9_]+$",maxLength:80},successfulUses:{type:"integer",minimum:1,maximum:3}},required:["skillKey","successfulUses"]}},
   },
-  required: ["corrections"],
+  required: ["corrections","focusAreas","strengthenedAreas"],
 } as const;
 
 export async function getTutorReview(
   messages: Message[],
   interfaceLocale: string,
+  targetLanguage: string,
+  targetVariant: string,
   correctPunctuation: boolean,
   acceptCasualTexting: boolean,
   correctionIntensity: CorrectionIntensity,
@@ -177,6 +194,8 @@ export async function getTutorReview(
       schema: tutorReviewJsonSchema,
       context: {
         interfaceLocale,
+        targetLanguage,
+        targetVariant,
         correctPunctuation,
         acceptCasualTexting,
         correctionIntensity,
@@ -216,6 +235,7 @@ const messageAnnotationsJsonSchema = {
 export async function getMessageAnnotations(
   messageText: string,
   interfaceLocale: string,
+  targetLanguage: string,
 ) {
   await ensureSession();
   if (!supabase) throw new Error("SUPABASE_NOT_CONFIGURED");
@@ -224,7 +244,7 @@ export async function getMessageAnnotations(
       feature: "message_explanation",
       schemaName: "message_annotations",
       schema: messageAnnotationsJsonSchema,
-      context: { interfaceLocale, messageText },
+      context: { interfaceLocale, targetLanguage, messageText },
     },
   });
   if (error) throw error;
